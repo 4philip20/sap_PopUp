@@ -1,0 +1,179 @@
+***********************************************************************
+*
+*  ESA Zusatzentwicklung
+*
+*  Entwicklungs-ID    : D...
+*  Beschreibung       : Kurzbeschreibung der Funktion
+*  Jira Ticket        :
+*  Funktion           : Beschreibung der Funktionen im Einzelnen
+*                       inkl. der Integration in die SAP Logik
+*  Autor              : <USERNAME>
+*  Datum              : <DATE>
+*  CR                 : Referenz auf den CR, falls relevant
+*  Verantwortlicher   : Berater, Kunde, Owner
+*  NetWeaver Release  : <RELEASE>
+*
+***********************************************************************
+*
+* Änderungshistorie
+* Datum    | von     | <Transportnummer, CR-Nummer, was wurde geändert>
+* -----------  ----------  --------------------------------------------
+* DD.MM.YYYY   Username   Transportnummer
+*  <DATE>   <USERNAME>         initial erstellt
+*
+***********************************************************************
+
+REPORT ZKAFFEE NO STANDARD PAGE HEADING.
+
+TABLES: USR03, UINFO.
+
+DATA: MARK(1),
+      MSG LIKE SM04DIC-POPUPMSG,
+      P_MSG(115) VALUE 'hier Nachricht eingeben'.
+
+DATA: BEGIN OF ITAB_UINFO OCCURS   0,
+        BNAME LIKE UINFO-BNAME,
+        TCODE LIKE UINFO-TCODE,
+        NAME1 LIKE USR03-NAME1,
+        NAME2 LIKE USR03-NAME2,
+        NAME3 LIKE USR03-NAME3,
+        NAME4 LIKE USR03-NAME4,
+        ABTLG LIKE USR03-ABTLG,
+      END OF ITAB_UINFO.
+
+DATA: LAENGE TYPE I, FLAG_SYBILLE.
+
+SELECTION-SCREEN BEGIN OF SCREEN 1001.
+SELECT-OPTIONS S_BNAME FOR UINFO-BNAME.
+SELECTION-SCREEN END OF SCREEN 1001.
+
+S_BNAME-SIGN = 'I'.
+S_BNAME-OPTION = 'CP'.
+S_BNAME-LOW = '*'.
+APPEND S_BNAME.
+
+
+PERFORM BENUTZER_ERMITTELN.
+
+PERFORM GRUNDLISTE.
+
+
+********
+AT PF06.
+********
+  PERFORM BENUTZER_ERMITTELN.
+  PERFORM GRUNDLISTE.
+
+
+********
+AT PF07.
+********
+  CALL SELECTION-SCREEN 1001 STARTING AT 3 3.
+  PERFORM BENUTZER_ERMITTELN.
+  PERFORM GRUNDLISTE.
+
+
+********
+AT PF08.
+********
+* Versenden
+  CLEAR: USR03.
+  CALL FUNCTION 'TMS_WBO_READ_USER_ADDRESS'
+       EXPORTING
+            IV_USER_NAME           = SY-UNAME
+       IMPORTING
+            ES_USR03               = USR03
+       EXCEPTIONS
+            USER_ADDRESS_NOT_FOUND = 1
+            INTERNAL_ERROR         = 2
+            OTHERS                 = 3.
+
+  READ LINE 1 FIELD VALUE P_MSG.
+
+  CONCATENATE USR03-NAME1 ':' INTO MSG.
+  CONCATENATE MSG P_MSG INTO MSG SEPARATED BY ' '.
+  LAENGE = STRLEN( MSG ).
+
+  DO.
+    CLEAR MARK.
+    READ LINE SY-INDEX FIELD VALUE MARK.
+    IF SY-SUBRC <> 0. EXIT. ENDIF.
+    CHECK: MARK = 'X'.
+
+    CALL FUNCTION 'TH_POPUP'
+         EXPORTING
+              CLIENT         = SY-MANDT
+              USER           = ITAB_UINFO-BNAME
+              MESSAGE        = MSG
+         MESSAGE_LEN    = LAENGE
+*         CUT_BLANKS     = ' '
+         EXCEPTIONS
+              USER_NOT_FOUND = 1
+              OTHERS         = 2.
+
+  ENDDO.
+
+*---------------------------------------------------------------------*
+*       FORM GRUNDLISTE                                               *
+*---------------------------------------------------------------------*
+*       ........                                                      *
+*---------------------------------------------------------------------*
+FORM GRUNDLISTE.
+  SET BLANK LINES ON.
+  SY-LSIND = 0.
+  WRITE: / P_MSG INPUT ON.
+  SKIP.
+  WRITE: / '<F8> Versenden an markierte Empfänger / ' &
+           '<F6> Auffrischen / ' &
+           '<F7> andere Benutzerauswahl'
+           COLOR COL_NEGATIVE INVERSE ON.
+  ULINE.
+  CLEAR MARK.
+
+  LOOP AT ITAB_UINFO.
+    WRITE: / MARK AS CHECKBOX, ITAB_UINFO-BNAME COLOR COL_KEY,
+                               ITAB_UINFO-NAME1 COLOR COL_HEADING,
+                               ITAB_UINFO-NAME2 COLOR COL_NORMAL,
+                               ITAB_UINFO-ABTLG COLOR COL_HEADING.
+    HIDE: ITAB_UINFO-BNAME.
+
+  ENDLOOP.
+ENDFORM.
+
+*---------------------------------------------------------------------*
+*       FORM BENUTZER_ERMITTELN                                       *
+*---------------------------------------------------------------------*
+*       ........                                                      *
+*---------------------------------------------------------------------*
+FORM BENUTZER_ERMITTELN.
+  DATA: UINFO LIKE TABLE OF UINFOS WITH HEADER LINE.
+
+  REFRESH ITAB_UINFO.
+
+  CALL FUNCTION 'TH_SYSTEMWIDE_USER_LIST'
+       TABLES
+            LIST   = UINFO
+       EXCEPTIONS
+            OTHERS = 1.
+
+  SORT UINFO BY BNAME.
+  DELETE ADJACENT DUPLICATES FROM UINFO COMPARING BNAME.
+
+  LOOP AT UINFO WHERE BNAME IN S_BNAME.
+
+    CLEAR: USR03.
+    CALL FUNCTION 'TMS_WBO_READ_USER_ADDRESS'
+         EXPORTING
+              IV_USER_NAME           = UINFO-BNAME
+         IMPORTING
+              ES_USR03               = USR03
+         EXCEPTIONS
+              USER_ADDRESS_NOT_FOUND = 1
+              INTERNAL_ERROR         = 2
+              OTHERS                 = 3.
+    MOVE-CORRESPONDING UINFO TO ITAB_UINFO.
+    MOVE-CORRESPONDING USR03 TO ITAB_UINFO.
+    APPEND ITAB_UINFO.
+  ENDLOOP.
+
+ENDFORM.
